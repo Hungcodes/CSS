@@ -1,0 +1,648 @@
+#CIS 6110 - Applications of Data Analytics - Dr. Olson
+#week 5 - Survival models
+#Hung Pham
+#This week, we are going to explore Kaplan-Meier method, log rank test, and 
+#Cox proportional hazards models to observe Telco customer churn
+
+#install libraries that are not in the defaul library
+install.packages(c('survminer','ggpubr', 'survival', 'censored'))
+
+#load all libraries needed for this analysis
+library(tidyverse)  #for data manipulation
+library(survminer)  #for producing the survival plots
+library(ggpubr)     #for presenting groupings of plots
+library(survival)   #for survival analysis models
+library(censored)   #for censoring data
+
+#STEP 1: load data from My GitHub account
+url <- "https://raw.githubusercontent.com/Hungcodes/CSS/main/WA_Fn-UseC_-Telco-Customer-Churn.csv"
+ChurnData <- read.csv(url, header = TRUE)
+
+#Review the Employee Attrition data to see the number of rows and columns and the names of the colums
+
+
+#Conduct EDA
+#PART 1 - Univariate Analysis of Quantitative Values
+
+#Load required libraries
+library(ggplot2)
+library(ggpubr)
+
+#Set plot dimensions
+options(repr.plot.width = 12, repr.plot.height = 10)
+
+#Ensure TotalCharges is numeric 
+ChurnData$TotalCharges <- as.numeric(ChurnData$TotalCharges)
+
+#Boxplot and Histogram for Tenure, MonthlyCharges, and TotalCharges
+PlotQ1a <-
+  ggplot(ChurnData, aes(x = "", y = tenure)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Range of tenure", x = "", y = "months") +
+  theme_minimal()
+
+PlotQ1b <-
+  ggplot(ChurnData, aes(x = tenure)) +
+  geom_histogram(binwidth = 5, color = "black", fill = "lightyellow") +
+  labs(title = "Frequency Distribution of Tenure",
+       x = "Tenure", y = "Frequency") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 10))+
+  scale_x_continuous(breaks = seq(0, 75, by = 15))
+
+PlotQ2a <-
+  ggplot(ChurnData, aes(x = "", y = MonthlyCharges)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Range of monthly charges", x = "", y = "dollars") +
+  theme_minimal()
+
+PlotQ2b <-
+  ggplot(ChurnData, aes(x = MonthlyCharges)) +
+  geom_histogram(binwidth = 10, color = "black", fill = "lightyellow") +
+  labs(title = "Frequency Distribution of Monthly Charges",
+       x = "Monthly Charges", y = "Frequency") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 10))+
+  scale_x_continuous(breaks = seq(0, 120, by = 20))
+
+PlotQ3a <-
+  ggplot(ChurnData, aes(x = "", y = TotalCharges)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Range of total charges", x = "", y = "dollars") +
+  theme_minimal()
+
+PlotQ3b <-
+  ggplot(ChurnData, aes(x = TotalCharges)) +
+  geom_histogram(binwidth = 500, color = "black", fill = "lightyellow") +
+  labs(title = "Frequency Distribution of Total Charges",
+       x = "Total Charges", y = "Frequency") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 10))+
+  scale_x_continuous(breaks = seq(0, 9000, by = 1500))
+
+ggarrange(PlotQ1a, PlotQ1b, 
+          PlotQ2a, PlotQ2b, 
+          PlotQ3a, PlotQ3b,
+          ncol = 2,          # 2 columns
+          nrow = 3,          # 3 rows
+          heights = c(1, 1, 1),  # Equal heights
+          widths = c(0.4, 1))    # Narrower boxplots, wider histograms
+
+#Cleanup
+rm(PlotQ1a,PlotQ1b,PlotQ2a,PlotQ2b,PlotQ3a,PlotQ3b)
+   
+#PART 2 - Univariate Analysis of Categorical Values
+
+# Set plot dimensions
+options(repr.plot.width = 14, repr.plot.height = 12)
+
+# Load the dataset (uncomment and adjust path if needed)
+# ChurnData <- read.csv("path_to_your_file.csv", stringsAsFactors = FALSE)
+
+# Function to create bar plots for categorical variables
+create_bar_plot <- function(data, column, title, x_label) {
+  # Create frequency table and convert to data frame
+  freq_table <- table(data[[column]])
+  freq_df <- as.data.frame(freq_table)
+  colnames(freq_df) <- c("Category", "Frequency")
+  
+  # Create bar plot
+  ggplot(freq_df, aes(x = reorder(Category, -Frequency), y = Frequency)) +
+    geom_bar(stat = "identity", color = "black", fill = "lightcoral", width = 0.7) +
+    labs(title = title, x = x_label, y = "Frequency") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5, size = 12),
+          axis.text = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+}
+
+# Define categorical variables and their plot details
+cat_vars <- list(
+  list(col = "gender", title = "Distribution of Gender", xlab = "Gender"),
+  list(col = "SeniorCitizen", title = "Distribution of Senior Citizen Status", xlab = "Senior Citizen (0 = No, 1 = Yes)"),
+  list(col = "Partner", title = "Distribution of Partner Status", xlab = "Partner"),
+  list(col = "Dependents", title = "Distribution of Dependents Status", xlab = "Dependents"),
+  list(col = "PhoneService", title = "Distribution of Phone Service Status", xlab = "Phone Service"),
+  list(col = "MultipleLines", title = "Distribution of Multiple Lines Status", xlab = "Multiple Lines"),
+  list(col = "InternetService", title = "Distribution of Internet Service Status", xlab = "Internet Service"),
+  list(col = "OnlineSecurity", title = "Distribution of Online Security Status", xlab = "Online Security"),
+  list(col = "OnlineBackup", title = "Distribution of Online Backup Status", xlab = "Online Backup"),
+  list(col = "DeviceProtection", title = "Distribution of Device Protection Status", xlab = "Device Protection"),
+  list(col = "TechSupport", title = "Distribution of Tech Support Status", xlab = "Tech Support"),
+  list(col = "StreamingTV", title = "Distribution of Streaming TV Status", xlab = "Streaming TV"),
+  list(col = "StreamingMovies", title = "Distribution of Streaming Movies Status", xlab = "Streaming Movies"),
+  list(col = "Contract", title = "Distribution of Contract Status", xlab = "Contract"),
+  list(col = "PaperlessBilling", title = "Distribution of Paperless Billing Status", xlab = "Paperless Billing"),
+  list(col = "PaymentMethod", title = "Distribution of Payment Method Status", xlab = "Payment Method"),
+  list(col = "Churn", title = "Distribution of Churn Status", xlab = "Churn")
+)
+
+# Generate all plots using the function
+plots <- lapply(cat_vars, function(var) {
+  create_bar_plot(ChurnData, var$col, var$title, var$xlab)
+})
+
+# Arrange plots in a 4x4 grid (17 plots total, last slot will be empty)
+ggarrange(plotlist = plots, 
+          ncol = 6, 
+          nrow = 3, 
+          heights = rep(1, 3), 
+          widths = rep(1, 6))
+
+#Part 3 - Bivariate Analysis of Quantitative Variables
+
+#Create boxplots illustrating the quantitative values against Churn status
+
+PlotB1 <-
+  ggplot(ChurnData, aes(x=Churn, y=tenure, fill=Churn)) +
+  geom_boxplot() +
+  labs(title = "Tenure and Churn Status",
+       x = "Churn",
+       y = "tenure") +
+  theme(legend.position="none")
+
+PlotB2 <-
+  ggplot(ChurnData, aes(x=Churn, y=MonthlyCharges, fill=Churn)) +
+  geom_boxplot() +
+  labs(title = "Monthly Charges and Churn Status",
+       x = "Churn",
+       y = "Monthly Charges") +
+  theme(legend.position="none")
+
+PlotB3 <-
+  ggplot(ChurnData, aes(x=Churn, y=TotalCharges, fill=Churn)) +
+  geom_boxplot() +
+  labs(title = "TotalCharges and Churn Status",
+       x = "Churn",
+       y = "TotalCharges") +
+  theme(legend.position="none")
+
+#Diplay the plots in a 2x2 matrix
+ggarrange(PlotB1, PlotB2, PlotB3, ncol=3, nrow=1)
+
+
+#Cleanup temporary dataframes and plots
+rm(PlotB1,PlotB2,PlotB3, PlotB4)
+
+#Part 4 - Bivariate Analysis of Categorical Variables
+
+#Create a grouped bar chart for each of the categorical variables
+#against the Churn status
+
+#Hide the annoyting message dplyr is producing
+options(dplyr.summarise.inform = FALSE)
+
+#Select quanlitative columns and create a histogram for each column
+ChurnC <- ChurnData[c(2,3,4,5,7,8,9,10,11,12,13,14,15,16,21)]
+
+# Load required libraries
+library(ggplot2)
+library(cowplot)  # for plot_grid
+library(stringr)  # for str_wrap
+library(scales)   # for percent formatting
+
+# Create individual plots with position = 'fill' for proportional stacking
+
+p0 <- ggplot(ChurnC, aes(x = gender, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "Gender and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent)
+
+p1 <- ggplot(ChurnC, aes(x = SeniorCitizen, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "SeniorCitizen and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent)
+
+p2 <- ggplot(ChurnC, aes(x = Partner, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "Partner and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent)
+
+p3 <- ggplot(ChurnC, aes(x = Dependents, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "Dependents and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent)
+
+p4 <- ggplot(ChurnC, aes(x = PhoneService, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "PhoneService and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent)
+
+p5 <- ggplot(ChurnC, aes(x = MultipleLines, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "MultipleLines and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 10))
+
+# Combine plots using plot_grid
+
+plot_grid(p0, p1, p2, p3, p4,p5,
+          align = "h",  # horizontal alignment
+          ncol = 2)     # 2 columns layout
+
+p6 <- ggplot(ChurnC, aes(x = InternetService, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "InternetService and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent)
+
+p7 <- ggplot(ChurnC, aes(x = OnlineSecurity, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "OnlineSecurity and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) 
+ 
+
+p8 <- ggplot(ChurnC, aes(x = OnlineBackup, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "OnlineBackup and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) 
+ 
+
+p9 <- ggplot(ChurnC, aes(x = DeviceProtection, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "DeviceProtection and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) 
+  
+p10 <- ggplot(ChurnC, aes(x = TechSupport, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "TechSupport and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) 
+  
+
+p11 <- ggplot(ChurnC, aes(x = StreamingTV, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "StreamingTV and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) 
+  
+
+p12 <- ggplot(ChurnC, aes(x = StreamingMovies, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "StreamingMovies and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent)
+
+
+p13 <- ggplot(ChurnC, aes(x = Contract, fill = Churn)) + 
+  geom_bar(position = 'fill') +
+  labs(title = "Contract and Churn", y = "Proportion") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) 
+  
+# Combine plots using plot_grid (you can adjust ncol based on preference)
+plot_grid(p6, p7, p8, p9, p10, p11,p12,p13,
+          align = "h",  # horizontal alignment
+          ncol = 3)     # 3 columns layout
+
+#Cleanup temporary dataframes and plots
+rm(AttritionF,AttritionC,p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13)
+
+#Step 3: Explain the findings from the EDA
+#Univariate analysis:
+#The analysis reveals that month-to-month contracts, paperless billing, and fiber optic internet service are popular among customers. 
+#Electronic check and mailed check are the most common payment methods. 
+#The distributions also show that a majority of customers do not opt for additional services like online security, online backup, device protection, tech support, streaming TV, and streaming movies. 
+#The churn distribution indicates that a majority of customers remain with the service provider, while a smaller proportion churns.
+
+#Bivariate analysis:
+#The variables that should be considered for inclusion in the survivor model are:
+#Tenure: It has a clear association with churn behavior, with shorter tenure indicating a higher likelihood of churn.
+#Monthly Charges: Higher monthly charges seem to be associated with a higher probability of churn.
+#Total Charges: Lower total charges appear to be related to a higher risk of churn.
+
+#The Contract, PaperlessBilling, and PaymentMethod variables exhibit notable differences in their frequency distributions and could potentially influence churn.
+#Consider including MultipleLines, InternetService, OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport, StreamingTV, 
+#and StreamingMovies in the model, as they represent various services and features that might impact customer churn behavior.
+
+#Overall, I would include tenure, monthly charges, contract, and internet service in the survivor model because these variables indicated
+#strong potential correlation with churn based on univariate and bivariate analysis. 
+
+#Step 4: Prepare Data for Analysis
+#Create working dataframe
+SA_data <- ChurnData
+
+#Select colums for analysis
+SA_data <- SA_data[c(3,4,5,6,9,10,13,16,19,20,21)]
+
+#Delete rows with NA
+SA_data <- na.omit(SA_data)
+
+# Convert data for Survival Analysis
+SA_data <- SA_data %>%
+  mutate(
+    Churn = ifelse(Churn == "No", 0, 1),
+    tenure = as.numeric(tenure),
+    SeniorCitizen = as.factor(SeniorCitizen),
+    Dependents = as.factor(Dependents),
+    Partner = as.factor(Partner),
+    OnlineSecurity = as.factor(OnlineSecurity),
+    TechSupport = as.factor(TechSupport),
+    InternetService = as.factor(InternetService),
+    Contract = as.factor(Contract),
+    MonthlyCharges = as.numeric(MonthlyCharges),
+    TotalCharges = as.numeric(TotalCharges)
+  )
+
+#Step 5: Create Kaplan-Meier Models
+#Apply the model by Internet Service and use the log-rank test to determine
+#if there is a significant difference between your groups for survival.
+
+#Create the survival model and view the results
+SA_IntSer <- survfit(Surv(tenure, Churn) ~ InternetService, data = SA_data)
+message("----------Internet Service----------")
+SA_IntSer
+
+#Calculate and view log-rank results
+SA_IntSerLR <- survdiff(Surv(tenure, Churn) ~ InternetService, data = SA_data)
+message("\n\n\n----------Internet Service Differences----------")
+SA_IntSerLR
+
+#Plot model results
+message("\n\n\n----------Probability Plot - Internet Service----------")
+ggsurvplot(
+  fit = SA_IntSer,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure",
+  ylab = "Probability of Retention",
+  tables.height = 0.3)
+
+#Apply the model by Contract and use the log-rank test to determine
+#if there is a significant difference between your groups for survival.
+
+#Create the survival model and view the results
+SA_Ctr <- survfit(Surv(tenure, Churn) ~ Contract, data = SA_data)
+message("----------Contract----------")
+SA_Ctr
+
+#Calculate and view log-rank results
+SA_CtrLR <- survdiff(Surv(tenure, Churn) ~ Contract, data = SA_data)
+message("\n\n\n----------Contract Differences----------")
+SA_CtrLR
+
+#Plot model results
+message("\n\n\n----------Probability Plot - Contract----------")
+ggsurvplot(
+  fit = SA_Ctr,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure",
+  ylab = "Probability of Retention",
+  tables.height = 0.3)
+
+#Create the survival model and view the results
+SA_MonC <- survfit(Surv(tenure, Churn) ~ MonthlyCharges, data = SA_data)
+message("----------monthlycharges----------")
+SA_MonC
+
+#Calculate and view log-rank results
+SA_MonCLR <- survdiff(Surv(tenure, Churn) ~ MonthlyCharges, data = SA_data)
+message("\n\n\n----------monthlycharge Differences----------")
+SA_MonCLR
+
+#Plot model results
+message("\n\n\n----------Probability Plot - Monthlycharge----------")
+ggsurvplot(
+  fit = SA_MonC,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure",
+  ylab = "Probability of Retention",
+  tables.height = 0.3)
+
+#Create the survival model and view the results
+SA_SC <- survfit(Surv(tenure, Churn) ~ SeniorCitizen, data = SA_data)
+message("----------SeniorCitizen----------")
+print(SA_SC)
+
+SA_SCLR <- survdiff(Surv(tenure, Churn) ~ SeniorCitizen, data = SA_data)
+message("\n\n\n----------SeniorCitizen Differences----------")
+print(SA_SCLR)
+
+ggsurvplot(
+  fit = SA_SC,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure (Months)",
+  ylab = "Probability of Retention",
+  tables.height = 0.3
+)
+
+# Kaplan-Meier for Dependents
+SA_Dep <- survfit(Surv(tenure, Churn) ~ Dependents, data = SA_data)
+message("----------Dependents----------")
+print(SA_Dep)
+
+SA_DepLR <- survdiff(Surv(tenure, Churn) ~ Dependents, data = SA_data)
+message("\n\n\n----------Dependents Differences----------")
+print(SA_DepLR)
+
+ggsurvplot(
+  fit = SA_Dep,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure (Months)",
+  ylab = "Probability of Retention",
+  tables.height = 0.3
+)
+
+# Kaplan-Meier for Partner
+SA_Part <- survfit(Surv(tenure, Churn) ~ Partner, data = SA_data)
+message("----------Partner----------")
+print(SA_Part)
+
+SA_PartLR <- survdiff(Surv(tenure, Churn) ~ Partner, data = SA_data)
+message("\n\n\n----------Partner Differences----------")
+print(SA_PartLR)
+
+ggsurvplot(
+  fit = SA_Part,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure (Months)",
+  ylab = "Probability of Retention",
+  tables.height = 0.3
+)
+
+# Kaplan-Meier for TechSupport
+SA_tech <- survfit(Surv(tenure, Churn) ~ TechSupport, data = SA_data)
+message("----------tech----------")
+print(SA_tech)
+
+SA_techLR <- survdiff(Surv(tenure, Churn) ~ TechSupport, data = SA_data)
+message("\n\n\n----------tech Differences----------")
+print(SA_techLR)
+
+ggsurvplot(
+  fit = SA_tech,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure (Months)",
+  ylab = "Probability of Retention",
+  tables.height = 0.3
+)
+
+# Kaplan-Meier for OnlineSecurity
+SA_sec <- survfit(Surv(tenure, Churn) ~ OnlineSecurity, data = SA_data)
+message("----------security----------")
+print(SA_sec)
+
+SA_secLR <- survdiff(Surv(tenure, Churn) ~ OnlineSecurity, data = SA_data)
+message("\n\n\n----------security Differences----------")
+print(SA_secLR)
+
+ggsurvplot(
+  fit = SA_sec,
+  data = SA_data,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Tenure (Months)",
+  ylab = "Probability of Retention",
+  tables.height = 0.3
+)
+
+
+
+#Apply the model across ALL groups
+SA_All <- survfit(Surv(tenure, Churn) ~ 1, data = SA_data)
+
+message("----------All Selected Variables----------")
+SA_All
+
+message("\n\n\n----------Probability Plot - All Variables----------")
+ggsurvplot(
+  fit = SA_All,
+  data = SA_data,
+  conf.int = TRUE,            # plot the confidence interval of the survival probability
+  risk.table = TRUE,          # draw the risk table below the graph
+  surv.median.line = "hv",    # draw the survival median line horizontally & vertically
+  xlab = "Tenure",
+  ylab = "Probability of Retention")
+
+#Step 6: Create Cox Models
+#Build a Cox Regression Model for each of the variables
+
+#Create the Cox model for Internet Service and display the model summary
+CoxIntSer <- coxph( Surv(tenure, Churn) ~ InternetService, data = SA_data )
+message("----------Cox Regression Model - Internet Service----------")
+summary(CoxIntSer)
+
+#Create the Cox model for Contract and display the model summary
+CoxCtr <- coxph( Surv(tenure, Churn) ~ Contract, data = SA_data )
+message("\n\n\n----------Cox Regression Model - Contract----------")
+summary(CoxCtr)
+
+#Create the Cox model for senior and display the model summary
+CoxSr <- coxph( Surv(tenure, Churn) ~ SeniorCitizen, data = SA_data )
+message("\n\n\n----------Cox Regression Model - SeniorCitizen----------")
+summary(CoxSr)
+
+#Create the Cox model for Partner and display the model summary
+CoxPn <- coxph( Surv(tenure, Churn) ~ Partner, data = SA_data )
+message("\n\n\n----------Cox Regression Model - Partner----------")
+summary(CoxPn)
+
+#Create the Cox model for Dependents and display the model summary
+CoxDp <- coxph( Surv(tenure, Churn) ~ Dependents, data = SA_data )
+message("\n\n\n----------Cox Regression Model - Dependents----------")
+summary(CoxDp)
+
+#Create the Cox model for OnlineSecurity and display the model summary
+CoxSec <- coxph( Surv(tenure, Churn) ~ OnlineSecurity, data = SA_data )
+message("\n\n\n----------Cox Regression Model - OnlineSecurity----------")
+summary(CoxSec)
+
+#Create the Cox model for TechSupport and display the model summary
+CoxSp <- coxph( Surv(tenure, Churn) ~ TechSupport, data = SA_data )
+message("\n\n\n----------Cox Regression Model - TechSupport----------")
+summary(CoxSp)
+
+#Create the Cox regession model
+CoxModelAll <-
+  coxph( Surv(tenure, Churn) ~ InternetService + Contract + MonthlyCharges +
+           TotalCharges + SeniorCitizen + Partner + Dependents + OnlineSecurity + TechSupport, data = SA_data )
+
+
+
+
+#Plot the Hazard Ratio
+ggforest(
+  CoxModelAll,
+  SA_data,
+  fontsize = 0.8)
+
+#Step 7: Evaluate Results
+#Kaplan-Meier Model
+#Both Internet Service and Contract variables show significant differences in churn rates based on the log-rank tests.
+#The p-values for both variables are highly significant (< 2e-16), indicating their strong association with churn.
+#The survival curves for each category within Internet Service and Contract display distinct patterns, suggesting their predictive ability for churn.
+#For combine model (All variables), the curve does not drop to 0.5, which confirms that the median survival time isn't reached.
+
+#Cox Model:
+
+#Internet Service:
+#Compared to the reference category (DSL), customers with Fiber optic internet service have a significantly higher hazard of churn (HR = 2.00, 95% CI: 1.651-2.427, p < 0.001).
+#Customers with no internet service have a significantly lower hazard of churn compared to DSL (HR = 0.26, 95% CI: 0.192-0.339, p < 0.001).
+#Internet Service appears to be a strong predictor of churn, with Fiber optic associated with higher churn risk and no internet service associated with lower churn risk.
+
+#Contract:
+#Compared to the reference category (Month-to-month), customers with One year contracts have a significantly lower hazard of churn (HR = 0.24, 95% CI: 0.202-0.297, p < 0.001).
+#Customers with Two year contracts also have a significantly lower hazard of churn compared to Month-to-month or one year (HR = 0.02, 95% CI: 0.013-0.029, p < 0.001).
+#Contract type is a significant predictor of churn, with longer contract durations (One year and Two year) associated with lower churn risk compared to Month-to-month contracts.
+
+#MonthlyCharges & TotalCharges
+#MonthlyCharges has HR = 1.04 and TotalCharges has HR = 1, which indicate no significant association with churn risk
+
+#Based on these results, Internet Service and Contract appear to be the most significant variables in predicting churn.
+
+#Step 8: Explain the Model
+#Churn prediction models help telecom companies identify customers who are likely to leave (churn) based on factors 
+#like internet service type, contract duration, and monthly charges. By analyzing historical customer data, 
+#these models assign a churn risk score to each customer.
+
+#Companies can use these scores to prioritize retention efforts, such as offering promotions or enhanced support to high-risk customers. 
+#The insights from the models can also guide business decisions, like improving certain services or offering incentives to retain customers.
+
+#Churn prediction models enable companies to proactively address potential customer churn, allocate resources effectively, 
+#and take steps to maintain a loyal customer base.
